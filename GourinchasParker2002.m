@@ -1,8 +1,13 @@
 % Gourinchas & Parker (2002) - Consumption over the Life-Cycle
 
+% First, does 'robust' estimation with the identity matrix as the weighting matrix
+% Second, then does 'efficient' estimation, with the inverse of the
+% variance-covariance matrix of the moment conditions, as the weighting matrix
+
 % Currently, I just take the data moments and the weighting matrix from some online materials.
 
 % Alternatively, GP2002_FirstStage.m reproduces the data work from scratch
+% (NOT YET COMPLETED)
 
 % Important difference: GP2002 solve based on the FOCs (the consumption
 % Euler Eqn). As a result, they do NOT need V_{J+1}, they instead just need
@@ -21,6 +26,9 @@
 % what GP2002 used (with gamma0 and gamma1 to pin down C_{J+1}).
 % [Both this code and GP2002 also estimate R and rho]
 
+% Another important difference: GP2002 do 'two-iteration efficient SMM'
+% (they call it two-step). Here because of the nature of the moments we can
+% just directly do efficient GMM (with no need for two-iterations).
  
 
 %% Age and model periods
@@ -32,6 +40,10 @@ Params.J=N_j;
 Params.agej=1:1:N_j;
 Params.age=Params.agejshifter+Params.agej;
 
+% Unit-root
+kirkbyoptions.nSigmas=1; % originally I used 2 % GP2002 do not discuss what this should be. If I let it be substantial, then the minimum grid point gets silly-low at higher ages 
+% This is the number of standard deviations used in discertization/quadrature
+% Turns out to essentially completely determine the value of rho (the risk aversion)
 
 
 %% Empirical data
@@ -44,7 +56,7 @@ Params.age=Params.agejshifter+Params.agej;
 % I copy-pasted the contents of these here
 avgincome=[18690.960, 19163.940, 19621.110, 20064.870, 20497.210, 20919.710, 21333.540, 21739.350, 22137.360, 22527.250, 22908.310, 23279.320, 23638.630, 23984.270, 24313.830, 24624.660, 24913.860, 25178.370, 25415.050, 25620.790, 25792.540, 25927.470, 26023.090, 26077.300, 26088.440, 26055.600, 25978.380, 25857.240, 25693.430, 25488.990, 25246.820, 24970.680, 24665.150, 24335.610, 23988.180, 23629.620, 23267.470, 22909.670, 22564.940, 22242.540];
 avgconsumption=[20346.439999999999, 20608.549999999999, 20553.389999999999, 20568.669999999998, 20832.849999999999, 20960.669999999998, 21566.720000000001, 21459.770000000000, 21282.630000000001, 22127.910000000000, 21929.880000000001, 21460.419999999998, 21619.970000000001, 22359.830000000002, 22107.360000000001, 23016.139999999999, 22424.619999999999, 22871.310000000001, 23250.590000000000, 23839.259999999998, 22803.639999999999, 22548.490000000002, 23354.259999999998, 22359.360000000001, 21651.770000000000, 21383.049999999999, 21787.459999999999, 21454.160000000000, 20358.779999999999, 19842.860000000001, 20311.130000000001, 20353.930000000000, 19331.619999999999, 19082.180000000000, 17613.980000000000, 19077.070000000000, 18321.340000000000, 18501.980000000000, 17788.040000000001, 18201.759999999998];
-WeightingMatrix=diag([3.6872008,3.8049959,3.5500436,3.7745263,4.2091920,4.1346511,3.8382528,3.7693568,4.0865395,3.8544915,3.9664480,3.8415740,4.0701883,3.7211355,3.7487563,3.7335098,3.7867473,3.7138973,3.9722601,3.2203741,3.6383268,3.3823610, 3.7156815,3.3014884,3.1814975,3.7363199,3.7048994, 3.7809048, 3.6250560, 3.2918133, 3.5717417,3.9574252,3.4803905,3.1553934,3.9773247,3.2377166,3.4513555,3.5322114,3.5292536, 3.4207858]);
+WeightingMatrix_AGS2017=diag([3.6872008,3.8049959,3.5500436,3.7745263,4.2091920,4.1346511,3.8382528,3.7693568,4.0865395,3.8544915,3.9664480,3.8415740,4.0701883,3.7211355,3.7487563,3.7335098,3.7867473,3.7138973,3.9722601,3.2203741,3.6383268,3.3823610, 3.7156815,3.3014884,3.1814975,3.7363199,3.7048994, 3.7809048, 3.6250560, 3.2918133, 3.5717417,3.9574252,3.4803905,3.1553934,3.9773247,3.2377166,3.4513555,3.5322114,3.5292536, 3.4207858]);
 % Note: I have double-checked these against contents of ./derived/Transparent Identification (Gourinchas and Parker Replication)/output/make.log
 %       from the materials of https://dataverse.harvard.edu/dataset.xhtml?persistentId=doi:10.7910/DVN/LLARSN
 % Note: This later source got the following as the fitted (estimated) moments for consumption:
@@ -98,8 +110,8 @@ Params.g=[log(Ybar(2:end))-log(Ybar(1:end-1)),0]; % GP2002 pg 65 gives this form
 
 %% Now, set up the model
 n_d=0; % no decision variable
-n_a=500; % assets is the only endogenous state
-n_z=51; % Permanent shock (GP2002 renormalize to eliminate this, I just keep it as I'm lazy)
+n_a=1001; % 501 % 1000 % assets is the only endogenous state
+n_z=75; %51 % 75 Permanent shock (GP2002 renormalize to eliminate this, I just keep it as I'm lazy)
 n_e=12; % zero-income shock (since the calibration follow Caroll (1997) I use 12 points as that is what Caroll (1997) used. I am just guessing GP2002 do the same)
 
 
@@ -195,7 +207,7 @@ d_grid=[];
 % If we log this process we get: lnZ_t= g + lnZ_t-1 + lnN_t
 % Since N_t is log-normal, we just get n_t=log(N_t) ~ N(0, sigma_z_n^2), which is nice and easy
 % We need to use the extension of Farmer-Toda to age-dependent parameters to handle the income growth g and that there are permanent shocks
-kirkbyoptions.nSigmas=2; % GP2002 do not discuss what this should be 
+kirkbyoptions.nSigmas=1; % originally I used 2 % GP2002 do not discuss what this should be. If I let it be substantial, then the minimum grid point gets silly-low at higher ages 
 kirkbyoptions.initialj0mewz=log(Ybar(1)); % Based on codes of Jorgensen (2023), he seems to set period 1 to be a permanent shock on this Ybar(1). This is just like making period 0 the Ybar(1).
 [lnz_grid_J, pi_z_J,jequaloneDistz,otheroutputs] = discretizeLifeCycleAR1_Kirkby(Params.g,ones(1,N_j),Params.sigma_z_n*ones(1,N_j),n_z,N_j,kirkbyoptions);
 % Note: GP2002 does what you should do in a model with exogenous
@@ -257,13 +269,8 @@ ReturnFn=@(aprime,a,z,e,R,rho,upsilon,agej,J,beta,kappa,h) GourinchasParker2002_
 
 
 
-%%
+%% Initial values for parameters to be estimated
 % Use the AGS estimates
-% beta	0.9574
-% rho	0.6526024
-% x0	0.061146601185
-% gamma0	0.0015
-% gamma1	0.071
 Params.beta=0.9574;
 Params.rho=0.6526;
 Params.gamma0=0.0015;
@@ -272,19 +279,20 @@ Params.h=Params.gamma0/Params.gamma1;
 % WHAT IS x0: log(0.0611)=-2.79, so this is omega26_mean, which is anyway almost exactly what I set below: exp(-2.794)=0.0612
 
 
-%%
-Params.rho=2;
-Params.beta=0.91;
-Params.kappa=5;
+% Overwrite with some better initial guesses based on the solution (calculated on a previous run)
+Params.rho=1.5;
+Params.beta=0.93;
+Params.kappa=15;
 
 %% Try solving value function
 tic;
+vfoptions.divideandconquer=1; % take advantage of monotonicity for a faster solution algorithm
 [V,Policy]=ValueFnIter_Case1_FHorz(n_d,n_a,n_z,N_j,d_grid,a_grid,z_grid_J,pi_z_J,ReturnFn,Params,DiscountFactorParamNames,[],vfoptions);
 vftime=toc
 
 %% Initial distribution
 
-% GP2002 do not talk about initial distribution of permanent shocks. So I just put them all on the median shock value.
+% GP2002 do not talk about initial distribution of permanent shocks.
 % GP2002 say they set initial assets to be log-normal distribution with
 Params.omega26_mean=-2.794; % parameter for the mean of log assets
 Params.omega26_stddev=1.784; % parameter for the std dev of log assets
@@ -298,16 +306,12 @@ initdisttime=toc
 
 % So initial dist is given by
 jequaloneDist=zeros(n_a,n_z,n_e);
-% jequaloneDist(:,floor((n_z+1)/2),7)=jequaloneDistassets; % everyone starts with median z and median e (first point in e is zero, then other 11 are the log-normal dist)
-% I need to add some variance to the income shocks, otherwise the two-step
-% GMM estimation is problematic as the first moment has almost zero
-% variance and so is given a riduculously high weight
+% I decided to add some variance to the income shocks, otherwise the first moment has almost zero variance at low ages which seems silly (clearly conflicts with data)
 jequaloneDist=jequaloneDistassets.*jequaloneDistz'.*shiftdim(pi_e,-2);
 z_grid_J(:,1)=linspace(0.95,1.05,n_z)'.*z_grid_J(:,1); % add 
 
 % GP2002 don't specify age weights, but as their only outputs are
-% life-cycle profiles they don't have too. So we will just put equal
-% weights.
+% life-cycle profiles they don't have too. So we will just put equal weights.
 AgeWeightParamNames={'mewj'};
 Params.mewj=ones(1,N_j)/N_j;
 
@@ -317,15 +321,15 @@ StationaryDist=StationaryDist_FHorz_Case1(jequaloneDist,AgeWeightParamNames,Poli
 disttime=toc
 
 %% Plot some outputs
-FnsToEvaluate.Income=@(aprime,a,z,e) z*e;
-FnsToEvaluate.Consumption=@(aprime,a,z,e,R) R*a+z*e-aprime;
-FnsToEvaluate.z=@(aprime,a,z,e) z;
-FnsToEvaluate.e=@(aprime,a,z,e) e;
-FnsToEvaluate.a=@(aprime,a,z,e) a;
+FnsToEvaluate2.Income=@(aprime,a,z,e) z*e;
+FnsToEvaluate2.Consumption=@(aprime,a,z,e,R) R*a+z*e-aprime;
+FnsToEvaluate2.z=@(aprime,a,z,e) z;
+FnsToEvaluate2.e=@(aprime,a,z,e) e;
+FnsToEvaluate2.a=@(aprime,a,z,e) a;
 
 simoptions.whichstats=[1,0,0,0,0,0,0];
 tic;
-AgeConditionalStats=LifeCycleProfiles_FHorz_Case1(StationaryDist,Policy,FnsToEvaluate,Params,[],n_d,n_a,n_z,N_j,d_grid,a_grid,z_grid_J,simoptions);
+AgeConditionalStats=LifeCycleProfiles_FHorz_Case1(StationaryDist,Policy,FnsToEvaluate2,Params,[],n_d,n_a,n_z,N_j,d_grid,a_grid,z_grid_J,simoptions);
 acstime=toc
 
 figure(3);
@@ -382,7 +386,6 @@ estimoptions.logmoments=1; % We target log(C), not C. [Note: we put in the targe
 % [If you are using PType, then these will be the PType equivalents]
 
 % So we want a FnsToEvaluate which is just consumption (this will be faster as it only includes what we actually need)
-clear FnsToEvaluate
 FnsToEvaluate.Consumption=@(aprime,a,z,e,R) R*a+z*e-aprime;
 
 save ./SavedOutput/GP2002setup.mat
@@ -391,102 +394,60 @@ save ./SavedOutput/GP2002setup.mat
 
 estimoptions.CalibParamsNames={'R'};
 
+%% Need the Variance-Covariance matrix of the moment conditions
+% GP2002 say they set weights as diagonal matrix, with elements being inverse of the variance of the data moments (given the actual numbers, these are presumably for log(C))
+% AGS2017 give the weights, but not the original covarinance matrix, so just invert it
+CovarMatrixDataMoments=zeros(size(WeightingMatrix_AGS2017));
+CovarMatrixDataMoments(logical(eye(size(CovarMatrixDataMoments))))=diag(WeightingMatrix_AGS2017).^(-1); 
+% Note: Because the data source used by GP2002 is cross-sectional, the
+% covariances between the different age-conditional-means is zero by definition.
 
-%% Check the panel data setup is okay
-simoptions.numbersims=1000
-tic;
-simPanelValues=SimPanelValues_FHorz_Case1(jequaloneDist,Policy,FnsToEvaluate,Params,[],n_d,n_a,n_z,N_j,d_grid,a_grid,z_grid_J,pi_z_J,simoptions);
-paneltime=toc
-% Compute the moments (same as CalibrateLifeCycleModel_objectivefn(), except the panel data versions)
-AllStats_PanelValues=PanelValues_AllStats_FHorz(simPanelValues,simoptions);
-tic;
-AgeConditionalStats_PanelValues=PanelValues_LifeCycleProfiles_FHorz(simPanelValues,N_j,simoptions);
-acspaneltime=toc
+% Note: The Variance-Covariance matrix of the moment conditions is not
+% typically equal to the Variance-Covariance matrix if the data moments.
+% But we are using 'seperable moments' and GMM estimation, so the two
+% coincide for us here. [Note, GP2002 and AGS2017 use SMM, so it would not
+% be true for them.]
 
+%% Done, setting up. 
 
+%% First, the robust estimation
+% Robust: use the identity matrix as weighting matrix
 
-%% Done. Now just run the calibrate life-cycle model command
-
-% As rough first run, pretend we actually have the Covariance Matrix of the
-% Data moments (so estimation doesn't involve any simulation).
-CovarMatrixDataMoments=zeros(size(WeightingMatrix));
-CovarMatrixDataMoments(logical(eye(size(CovarMatrixDataMoments))))=diag(WeightingMatrix).^(-1); % GP2002 say they set weights as diagonal matrix, with elements being inverse of the variance of the data moments (given the actual numbers, these are presumably for log(C))
-
+RobustWeightingMatrix=eye(size(CovarMatrixDataMoments));
 
 estimoptions.verbose=1; % give feedback
-[EstimParams1, EstimParamsStdDev1, estsummary1]=EstimateLifeCycleModel_MethodOfMoments(EstimParamNames,TargetMoments, WeightingMatrix,CovarMatrixDataMoments, n_d,n_a,n_z,N_j,d_grid, a_grid, z_grid_J, pi_z_J, ReturnFn, Params, DiscountFactorParamNames, jequaloneDist,AgeWeightParamNames, FnsToEvaluate, estimoptions, vfoptions,simoptions);
+[EstimParams_robust, EstimParamsConfInts_robust, estsummary_robust]=EstimateLifeCycleModel_MethodOfMoments(EstimParamNames,TargetMoments, RobustWeightingMatrix,CovarMatrixDataMoments, n_d,n_a,n_z,N_j,d_grid, a_grid, z_grid_J, pi_z_J, ReturnFn, Params, DiscountFactorParamNames, jequaloneDist,AgeWeightParamNames, FnsToEvaluate, estimoptions, vfoptions,simoptions);
 % EstimParams is the estimated parameter values
 % estsummary is a structure containing various info on how the estimation
 % went, plus some output useful for analysis
 
-save ./SavedOutput/GP2002estimation.mat EstimParams1 EstimParamsStdDev1 Params estsummary1 estimoptions
+save ./SavedOutput/GP2002estimation_robust.mat EstimParams_robust EstimParamsConfInts_robust Params estsummary_robust estimoptions
 
 save ./SavedOutput/GP2002_1.mat
 
-% EstimParams1 =
-%  beta: 0.9351
-%   rho: 1.3325
-%     h: 0.0108
-% kappa: 39.4087
 
-% EstimParamsStdDev1 = 
-%  beta: 0.0354
-%   rho: 0.7683
-%     h: 3.9630
-% kappa: 84.5467
+%% Second, the efficient estimation
+% Efficient: use the inverse of the variance-covariance matrix of the moment conditions as the weighting matrix
+% Typically, efficient estimation requires a two-iteration estimator.
+% But...
+% Because we use GMM and separable moments we can do GMM in a single
+% iteration. GMM with separable moments means that the variance-covariance 
+% matrix of the moment conditions is just equal to the variance-covariance
+% matrix of the data moments.
 
+EfficientWeightingMatrix=CovarMatrixDataMoments^(-1);
 
-%% Redo the estimation, this time using two-iteration GMM (which seems to be what GP2002 did; according to Joregensen)
-estimoptions.iterateGMM=2; % two-iteration GMM
-% Default: estimoptions.numbootstrapsims=100; % Number of simulations
-estimoptions.numberinvidualsperbootstrapsim=20000; % Note: number of observations is more like this times N_j (so 20000*40=800000)
-% Note: GP2002 used 20,000, while Jorgensen (2023) used 500,000 individuals
-% GP2002, pg 60: "we simulate lnC by running 20,000 independent income processes for 40 years"
-% Note: GP2002 data is more like 40,000 observations, which corresponds to 1000 individuals (full lifetimes, in data is obviously not quite same thing)
+estimoptions.verbose=1; % give feedback
+[EstimParams_eff, EstimParamsConfInts_eff, estsummary_eff]=EstimateLifeCycleModel_MethodOfMoments(EstimParamNames,TargetMoments, EfficientWeightingMatrix,CovarMatrixDataMoments, n_d,n_a,n_z,N_j,d_grid, a_grid, z_grid_J, pi_z_J, ReturnFn, Params, DiscountFactorParamNames, jequaloneDist,AgeWeightParamNames, FnsToEvaluate, estimoptions, vfoptions,simoptions);
+% EstimParams is the estimated parameter values
+% estsummary is a structure containing various info on how the estimation
+% went, plus some output useful for analysis
 
-% Not needed, but to make things faster for the next estimation
-for pp=1:length(EstimParamNames)
-    Params.(EstimParamNames{pp})=EstimParams1.(EstimParamNames{pp});
-end
-
-% Note: two-iteration efficient GMM, means we have no need/use for CovarMatrixDataMoments so just pass [] (this is just to emphasize that it won't be used)
-[EstimParams2, EstimParamsStdDev2, estsummary2]=EstimateLifeCycleModel_MethodOfMoments(EstimParamNames,TargetMoments, WeightingMatrix,[], n_d,n_a,n_z,N_j,d_grid, a_grid, z_grid_J, pi_z_J, ReturnFn, Params, DiscountFactorParamNames, jequaloneDist,AgeWeightParamNames, FnsToEvaluate, estimoptions, vfoptions,simoptions);
-
-save ./SavedOutput/GP2002estimation2.mat EstimParams2 EstimParamsStdDev2 Params estsummary2 estimoptions
-
-estimoptions=rmfield(estimoptions,'iterateGMM');
-estimoptions=rmfield(estimoptions,'numberinvidualsperbootstrapsim');
+save ./SavedOutput/GP2002estimation_eff.mat EstimParams_eff EstimParamsConfInts_eff Params estsummary_eff estimoptions
 
 save ./SavedOutput/GP2002_2.mat
 
 
-%% Now bootstrap the standard errors
-% load  ./SavedOutput/GP2002_1.mat
-
-estimoptions.bootstrapStdErrors=1;
-estimoptions.skipestimation=1; % We already have the estimated parameters, this time just bootstrap the standard errors (skipping the restimation that would otherwise occur)
-estimoptions.numbootstrapsims=100; % Number of simulations
-estimoptions.numberinvidualsperbootstrapsim=2000; % Note: number of observations is more like this times N_j (so 2000*40=80000)
-
-% Because we will use estimoptions.skipestimation=1 we need to make sure we start from the estimated parameters
-for pp=1:length(EstimParamNames)
-    Params.(EstimParamNames{pp})=EstimParams1.(EstimParamNames{pp});
-end
-
-% Note: bootstrap standard errors, means we have no need/use for CovarMatrixDataMoments so just pass [] (this is just to emphasize that it won't be used)
-[EstimParams3, EstimParamsBootstrapDist3, estsummary3]=EstimateLifeCycleModel_MethodOfMoments(EstimParamNames,TargetMoments, WeightingMatrix,[], n_d,n_a,n_z,N_j,d_grid, a_grid, z_grid_J, pi_z_J, ReturnFn, Params, DiscountFactorParamNames, jequaloneDist,AgeWeightParamNames, FnsToEvaluate, estimoptions, vfoptions,simoptions);
-% Note: because we bootstrap standard errors, the second output is the bootstrap distribution, instead of the standard error
-% Note: because we use estimoptions.skipestimation=1, EstimParams3 will just be a duplicate of EstimParams1
-
-save ./SavedOutput/GP2002estimation3.mat EstimParams3 EstimParamsBootstrapDist3 Params estsummary3 estimoptions
-
-estimoptions=rmfield(estimoptions,'bootstrapStdErrors');
-estimoptions=rmfield(estimoptions,'skipestimation');
-estimoptions=rmfield(estimoptions,'numbootstrapsims');
-estimoptions=rmfield(estimoptions,'numberinvidualsperbootstrapsim');
-
-save ./SavedOutput/GP2002_3.mat
- 
 
 %% Do I get the same estimates:
 % GP2002 report that: 
@@ -508,19 +469,19 @@ save ./SavedOutput/GP2002_3.mat
 
 %% Plot some outputs
 for cc=1:length(EstimParamNames)
-    Params.(EstimParamNames{cc})=EstimParams1.(EstimParamNames{cc});
+    Params.(EstimParamNames{cc})=EstimParams_eff.(EstimParamNames{cc});
 end
 
 [V,Policy]=ValueFnIter_Case1_FHorz(n_d,n_a,n_z,N_j,d_grid,a_grid,z_grid_J,pi_z_J,ReturnFn,Params,DiscountFactorParamNames,[],vfoptions);
 StationaryDist=StationaryDist_FHorz_Case1(jequaloneDist,AgeWeightParamNames,Policy,n_d,n_a,n_z,N_j,pi_z_J,Params,simoptions);
 
-FnsToEvaluate.Income=@(aprime,a,z,e) z*e;
-FnsToEvaluate.Consumption=@(aprime,a,z,e,R) R*a+z*e-aprime;
-FnsToEvaluate.z=@(aprime,a,z,e) z;
-FnsToEvaluate.e=@(aprime,a,z,e) e;
-FnsToEvaluate.a=@(aprime,a,z,e) a;
+% FnsToEvaluate2.Income=@(aprime,a,z,e) z*e;
+% FnsToEvaluate2.Consumption=@(aprime,a,z,e,R) R*a+z*e-aprime;
+% FnsToEvaluate2.z=@(aprime,a,z,e) z;
+% FnsToEvaluate2.e=@(aprime,a,z,e) e;
+% FnsToEvaluate2.a=@(aprime,a,z,e) a;
 
-AgeConditionalStats=LifeCycleProfiles_FHorz_Case1(StationaryDist,Policy,FnsToEvaluate,Params,[],n_d,n_a,n_z,N_j,d_grid,a_grid,z_grid_J,simoptions);
+AgeConditionalStats=LifeCycleProfiles_FHorz_Case1(StationaryDist,Policy,FnsToEvaluate2,Params,[],n_d,n_a,n_z,N_j,d_grid,a_grid,z_grid_J,simoptions);
 
 figure(11);
 plot(Params.age,AgeConditionalStats.Income.Mean)
@@ -549,39 +510,33 @@ title('Consumption')
 legend('Data','Model','AGS2017')
 
 
-%% Just me looking at how I bootstrap the Covar matrix in between the two steps of two-step efficient GMM. Was used to check that things are doing what I think they are.
-S=100; % estimoptions.numbootstrapsims
-% Preallocate a matrix to keep all the moments across each simulation
-SimMoments=zeros(S,40); % cov() below requires rows to be observations
+% As a check on the graph, calculate the GMM objective function both for our estimate and AGS2017 estimate
+Mdiff_eff=(smoothavgconsumption-AgeConditionalStats.Consumption.Mean)';
+Mdiff_AGS=(smoothavgconsumption-fittedavgconsumption_AGS2017)';
+GMMobj_eff=Mdiff_eff'*EfficientWeightingMatrix*Mdiff_eff;
+GMMobj_AGS=Mdiff_AGS'*EfficientWeightingMatrix*Mdiff_AGS;
+% GMMobj_AGS is lower, but because it is based on EE I cannot check if
+% their parameters actually give the consumption means that they report (or
+% if their mean consumption profile is actually impossible to acheive due
+% to V_{J+1} having different parametrization to C_{J+1}.)
+% Given their parameter estimates are essentailly my initial guess, I expect the
+% alternative parametrization makes it impossible to achieve an objective
+% function value as low as theirs.
 
-simoptions.numbersims=20000; %estimoptions.numberinvidualsperbootstrapsim
-% simoptions.numbersims=1000 is the default for SimPanelValues_FHorz_Case1
-
-for ss=1:S
-    ss
-    % Do a panel data simulation
-    simoptions.lowmemory=1; % Will be slower, but avoids out-of-memory errors, and the simulations to generate covar matrix is only done once anyway
-    simPanelValues=SimPanelValues_FHorz_Case1(jequaloneDist,Policy,FnsToEvaluate,Params,[],n_d,n_a,n_z,N_j,d_grid,a_grid,z_grid_J,pi_z_J,simoptions);
-    simoptions=rmfield(simoptions,'lowmemory');
-    panelAgeConditionalStats=PanelValues_LifeCycleProfiles_FHorz(simPanelValues,N_j,simoptions);
-
-    % Get current values of the target moments as a vector (note: this is copy-paste from CalibrateLifeCycleModel_objectivefn() command)
-    currentmomentvec=panelAgeConditionalStats.Consumption.Mean;
-    % log moments where appropriate
-    currentmomentvec=(1-estimoptions.logmoments).*currentmomentvec + estimoptions.logmoments.*log(currentmomentvec.*estimoptions.logmoments+(1-estimoptions.logmoments)); % Note: take log, and for those we don't log I end up taking log(1) (which becomes zero and so disappears)
-    % Store them
-    SimMoments(ss,:)=currentmomentvec';
-end
-
-mean(SimMoments,1)
-log(AgeConditionalStats.Consumption.Mean)
-
-temp=cov(SimMoments)
-var(SimMoments(:,1))
-temp(1,1)
-var(SimMoments(:,3))
-temp(3,3)
-
+%% Check asset grid (make sure people are not trying to leave the top end)
+Sdist=squeeze(sum(sum(StationaryDist,3),2));
+Sdist=cumsum(Sdist,1);
+Sdist=Sdist./Sdist(end,:); % normalize to 1 conditional on age
+figure(14)
+plot(Sdist(:,1))
+hold on
+plot(Sdist(:,10))
+plot(Sdist(:,20))
+plot(Sdist(:,30))
+plot(Sdist(:,40))
+hold off
+legend('period 1','10','20','30','40')
+% Seems fine, no-one runs into the top of the grid
 
 %% Runtime Comparisons
 % needed for paper
@@ -634,33 +589,6 @@ mean(disttime(2:end)+acstime(2:end))/mean(paneltime(2:end)+acspaneltime(2:end))
 
 
 
-
-%% Redo the estimation, this time using two-step GMM, but now just use number of sims that corresponds to actual number of data observations of GP2002
-% Relates to me wanting to make a point about how doing simulations with
-% way more observations than we have in data is breaking what should be a
-% strong intuitive link between sample size and standard errors.
-estimoptions.iterateGMM=2; % two iterations
-% Default: estimoptions.numbootstrapsims=100; % Number of simulations
-estimoptions.numberinvidualsperbootstrapsim=1000; % Note: number of observations is more like this times N_j (so 20000*40=800000)
-% Note: GP2002 used 20,000, while Jorgensen (2023) used 500,000 individuals
-% Note: GP2002 data is more like 40,000 observations, which corresponds to 1000 individuals (full lifetimes, in data is obviously not quite same thing)
-
-% Not needed, but to make things faster for the next estimation
-for pp=1:length(EstimParamNames)
-    Params.(EstimParamNames{pp})=EstimParams1.(EstimParamNames{pp});
-end
-
-% Note: two-iteration efficient GMM, means we have no need/use for CovarMatrixDataMoments so just pass [] (this is just to emphasize that it won't be used)
-[EstimParams2b, EstimParamsStdDev2b, estsummary2b]=EstimateLifeCycleModel_MethodOfMoments(EstimParamNames,TargetMoments, WeightingMatrix,[], n_d,n_a,n_z,N_j,d_grid, a_grid, z_grid_J, pi_z_J, ReturnFn, Params, DiscountFactorParamNames, jequaloneDist,AgeWeightParamNames, FnsToEvaluate, estimoptions, vfoptions,simoptions);
-
-save ./SavedOutput/GP2002estimation2.mat EstimParams2b EstimParamsStdDev2b Params estsummary2b estimoptions
-
-estimoptions=rmfield(estimoptions,'iterateGMM');
-estimoptions=rmfield(estimoptions,'numberinvidualsperbootstrapsim');
-
-save ./SavedOutput/GP2002_2b.mat
-
-
 %% Can we tell in advance which are likely to be best moments to target?
 % Calculate all the derivatives of moments with respect to parameters
 % Want to think about Gourinchas & Parker (2002) vs Cagetti (2003)
@@ -671,19 +599,19 @@ save ./SavedOutput/GP2002_2b.mat
 
 % load ./SavedOutput/GP2002_1.mat
 
-clear FnsToEvaluate
-FnsToEvaluate.Consumption=@(aprime,a,z,e,R) R*a+z*e-aprime;
-FnsToEvaluate.Wealth=@(aprime,a,z,e) a;
+FnsToEvaluate3.Consumption=@(aprime,a,z,e,R) R*a+z*e-aprime;
+FnsToEvaluate3.Wealth=@(aprime,a,z,e) a;
 
 
 Params.beta=1/(1+0.04);
 Params.rho=2;
 % Carroll (1997) doesn't need/use a parametrization of V_{T+1}, so I will just use our estimated one.
-Params.h=EstimParams1.h;
-Params.kappa=EstimParams1.kappa;
+Params.h=EstimParams_eff.h;
+Params.kappa=EstimParams_eff.kappa;
 
 % Compute the derivatives of model moments with respect to parameters to be estimated.
-[MomentDerivatives, SortedMomentDerivatives, momentderivsummary]=EstimateLifeCycleModel_MomentDerivatives(EstimParamNames, n_d,n_a,n_z,N_j,d_grid, a_grid, z_grid_J, pi_z_J, ReturnFn, Params, DiscountFactorParamNames, jequaloneDist,AgeWeightParamNames, FnsToEvaluate, estimoptions, vfoptions,simoptions);
+[MomentDerivatives, SortedMomentDerivatives, momentderivsummary]=EstimateLifeCycleModel_MomentDerivatives(EstimParamNames, n_d,n_a,n_z,N_j,d_grid, a_grid, z_grid_J, pi_z_J, ReturnFn, Params, DiscountFactorParamNames, jequaloneDist,AgeWeightParamNames, FnsToEvaluate3, estimoptions, vfoptions,simoptions);
+
 
 % How does beta matter?
 % Look at the derivatives w.r.t. beta for age-conditional mean of consumption
