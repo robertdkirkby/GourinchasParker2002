@@ -1,6 +1,8 @@
-function F=GourinchasParker2002_ReturnFn(aprime,a,z,e,R,rho,upsilon,agej,J,beta,kappa,h)
+function F=GourinchasParker2002_ReturnFn(aprime,a,z,e,R,rho,upsilonprerho,agej,J,beta,kappa,h,altPeriodJ,rhoJ)
 
 F=-Inf;
+
+upsilon=upsilonprerho^rho;
 
 c=R*a+z*e-aprime;
 
@@ -43,8 +45,14 @@ if agej==J
     % (GP2002 don't need this because they use FOCs so ignore the bequests, but they make same zprime=z assumption for H_{J+1} near top of pg 54)
     % Note that E[eprime]=1, so I just put in this certainty equivalent.
 
-    Fret=beta*kappa*upsilon*(XplusH^(1-rho))/(1-rho); % Add retirement utility to this period utility
-    % Note: implicitly assume upsilon is constant from period J to J+1 (is anyway hardly changing in last few periods)
+    if altPeriodJ==0 % Do final period following GP2002 paper
+        Fret=beta*kappa*upsilon*(XplusH^(1-rho))/(1-rho); % Add retirement utility to this period utility
+        % Note: implicitly assume upsilon is constant from period J to J+1 (is anyway hardly changing in last few periods)
+    else % altPeriodJ==1
+        % Use different rho for the final period
+        Fret=beta*kappa*upsilon*(XplusH^(1-rhoJ))/(1-rhoJ); % Add retirement utility to this period utility
+        % Note: still uses rho in upsilon.
+    end
 
     F=F+Fret;
 
