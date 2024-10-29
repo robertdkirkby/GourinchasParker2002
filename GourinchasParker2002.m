@@ -29,7 +29,12 @@
 % Another important difference: GP2002 do 'two-iteration efficient SMM'
 % (they call it two-step). Here because of the nature of the moments we can
 % just directly do efficient GMM (with no need for two-iterations).
- 
+
+%%
+% A line I needed for running on the Server
+addpath(genpath('./MatlabToolkits/'))
+% gpuDevice(1) % reset gpu to clear out memory
+
 
 %% Age and model periods
 
@@ -40,6 +45,8 @@ Params.J=N_j;
 Params.agej=1:1:N_j;
 Params.age=Params.agejshifter+Params.agej;
 
+showFigures=0; % set to zero to run on server
+
 % some stuff I want to skip sometimes (1=do them, 0=skip)
 preCalibFigures=0;
 doRuntimes=0;
@@ -49,16 +56,12 @@ doCheckVariousParams=0;
 % alternative calibration for final period
 altPeriodJ=1;
 
-Params.nSigmas=1; % for both permanent and transitory shocks
+Params.nSigmas=2; % for both permanent and transitory shocks
 % GP2002 did Gauss-Hermite quadrature with 5 points for permanent shocks (and same for for transitory shocks)
-% I use KFTT for permanent and Farmer-Toda for transitory with way more points.
+% I use KFTT for permanent and Farmer-Toda for transitory with way more points (actually, setting nSigmas=1 this was no longer possible, so switched to Tauchen)
 % Set small nSigmas, used for both, to be more in line with what a 5 point Gauss-Hermite is likely to produce in terms of amount of income risk
 
-% Robust estimates (W=I): altPeriodJ=0
-% nSigmas=0.3: beta=-0.03, rho=1.45   [h=71.25, kappa=7.07]
-% nSigmas=0.5: beta=0.966, rho=0.01   [h=0.11, kappa=1.02]
-% nSigmas=1:   beta=, rho=
-
+estimoptions.fminalgo=8; % lsqnonlin()
 
 %% Empirical data
 % From: https://github.com/ThomasHJorgensen/Sensitivity/tree/master/GP2002
@@ -102,17 +105,18 @@ fittedavgconsumption_AGS2017=[18675.330192338559, 19388.212600096318, 19931.4096
 %        Ret_i=dummy for each group that is equal to 1 when the respondent is retired
 smoothavgconsumption=avgconsumption; % PLACEHOLDER
 
-
-figure(2)
-plot(26:1:65,smoothavgconsumption,'-r')
-hold on
-plot(26:1:65,avgconsumption,'or')
-plot(26:1:65,avgincome,'-|b')
-hold off
-title('Household consumption and income over the life cycle')
-legend('Consumption (smoothed)','Consumption (raw)','Income')
-ylabel('1987 dollars')
-xlabel('Age')
+if showFigures==1
+    figure(2)
+    plot(26:1:65,smoothavgconsumption,'-r')
+    hold on
+    plot(26:1:65,avgconsumption,'or')
+    plot(26:1:65,avgincome,'-|b')
+    hold off
+    title('Household consumption and income over the life cycle')
+    legend('Consumption (smoothed)','Consumption (raw)','Income')
+    ylabel('1987 dollars')
+    xlabel('Age')
+end
 
 % From the average income profile we derive the expected income growth profile
 % Params.g=[log(avgincome(2:end))-log(avgincome(1:end-1)),0]; % GP2002 pg 65 gives this formula
@@ -207,7 +211,7 @@ Params.kappa=500;
 
 %% Grids
 % Because there is a positive probability in every period of zero earnings and agents must die without debt, there is implicitly a no-borrowing constaint
-a_grid=(7*10^5)*linspace(0,1,n_a)'.^3; % average annual income is about 20,000, so use max assets of 600,000
+a_grid=(10^6)*linspace(0,1,n_a)'.^3; % average annual income is about 20,000, so use max assets of 600,000
 
 d_grid=[];
 
@@ -224,16 +228,19 @@ d_grid=[];
 % If we log this process we get: lnZ_t= g + lnZ_t-1 + lnN_t
 % Since N_t is log-normal, we just get n_t=log(N_t) ~ N(0, sigma_z_n^2), which is nice and easy
 % We need to use the extension of Farmer-Toda to age-dependent parameters to handle the income growth g and that there are permanent shocks
-kfttoptions.nSigmas=Params.nSigmas;
-kfttoptions.nMoments=2; % discretization targets first two conditional moments
-kfttoptions.initialj0mewz=log(Ybar(1)); % Based on codes of Jorgensen (2023), he seems to set period 1 to be a permanent shock on this Ybar(1). This is just like making period 0 the Ybar(1).
-[lnz_grid_J, pi_z_J,jequaloneDistz,otheroutputs] = discretizeLifeCycleAR1_KFTT(Params.g,ones(1,N_j),Params.sigma_z_n*ones(1,N_j),n_z,N_j,kfttoptions);
-% Note: GP2002 does what you should do in a model with exogenous
-% labor and  permament shocks, namely renormalize and then solve. We just
-% take the lazy (but computationally costly) option here, on the plus side
-% it makes it easy to modify this shock process.
+if Params.nSigmas>=1.2
+    kfttoptions.nSigmas=Params.nSigmas;
+    kfttoptions.nMoments=2; % discretization targets first two conditional moments
+    kfttoptions.initialj0mewz=log(Ybar(1)); % Based on codes of Jorgensen (2023), he seems to set period 1 to be a permanent shock on this Ybar(1). This is just like making period 0 the Ybar(1).
+    [lnz_grid_J, pi_z_J,jequaloneDistz,otheroutputs] = discretizeLifeCycleAR1_KFTT(Params.g,ones(1,N_j),Params.sigma_z_n*ones(1,N_j),n_z,N_j,kfttoptions);
+else % KFTT is better than Tauchen, but doesn't really work if you have nSigmas<1.2 (is hard to hit the variance if your max/min points are only one std dev!!)
+    fellagallipolipanoptions.nSigmas=Params.nSigmas;
+    fellagallipolipanoptions.initialj0mewz=log(Ybar(1)); % Based on codes of Jorgensen (2023), he seems to set period 1 to be a permanent shock on this Ybar(1). This is just like making period 0 the Ybar(1).
+    [lnz_grid_J, pi_z_J,jequaloneDistz,otheroutputs] = discretizeLifeCycleAR1_FellaGallipoliPanTauchen(Params.g,ones(1,N_j),Params.sigma_z_n*ones(1,N_j),n_z,N_j,fellagallipolipanoptions);
+end
 z_grid_J=exp(lnz_grid_J);
-% jequaloneDistz is the initial distribution
+% Note: GP2002 does what you should do in a model with exogenous labor and  permament shocks, namely renormalize and then solve. We just
+% take the lazy (but computationally costly) option here, on the plus side it makes it easy to modify this shock process.
 
 % Turns out that while the original discretization is good, taking the exponential of the grid messes up the drift.
 % (This is fairly standard, discretizing and then taking exponential often messes things up)
@@ -256,8 +263,14 @@ end
 % Transitory shocks
 % First, the e shock which is i.i.d.
 % Consists of a first stage, which GP2002 call u
-farmertodaoptions.nSigmas=Params.nSigmas; 
-[u_grid,pi_u]=discretizeAR1_FarmerToda(0,0,Params.sigma_u,n_e-1,farmertodaoptions);
+if Params.nSigmas>=1.2
+    farmertodaoptions.nSigmas=Params.nSigmas;
+    [u_grid,pi_u]=discretizeAR1_FarmerToda(0,0,Params.sigma_u,n_e-1,farmertodaoptions);
+else
+    tauchenoptions=struct();
+    Tauchen_q=Params.nSigmas;
+    [u_grid,pi_u]=discretizeAR1_Tauchen(0,0,Params.sigma_u,n_e-1,Tauchen_q,tauchenoptions);
+end
 pi_u=pi_u(1,:)';
 % [sum(lnZ_grid.*pi_Z),Params.mew_lnZ] % should be equal, they are
 % Now add in the zero-income event, and use Z instead of lnZ
@@ -303,12 +316,14 @@ Params.rho=0.3;
 % Params.beta=0.94;
 
 if altPeriodJ==1
+    % rho_J is the rho for the terminal period (used in the 'warm-glow of bequests), altPeriodJ allows it to differ from rho.
     Params.rhoJ=Params.rho;
     Params.altPeriodJ=1;
 elseif altPeriodJ==0
     Params.rhoJ=0; % Not used for anything
     Params.altPeriodJ=0;
 end
+
 
 %% Try solving value function
 tic;
@@ -364,7 +379,8 @@ tic;
 AgeConditionalStats=LifeCycleProfiles_FHorz_Case1(StationaryDist,Policy,FnsToEvaluate2,Params,[],n_d,n_a,n_z,N_j,d_grid,a_grid,z_grid_J,simoptions);
 acstime=toc
 
-if preCalibFigures==1
+
+if preCalibFigures==1 && showFigures==1
     figure(3);
     plot(Params.age,AgeConditionalStats.Income.Mean)
     hold on
@@ -421,19 +437,16 @@ estimoptions.logmoments=1; % We target log(C), not C. [Note: we put in the targe
 % So we want a FnsToEvaluate which is just consumption (this will be faster as it only includes what we actually need)
 FnsToEvaluate.Consumption=@(aprime,a,z,e,R) R*a+z*e-aprime;
 
-save ./SavedOutput/GP2002setup.mat
-
-% load ./SavedOutput/GP2002setup.mat
-
+estimoptions.verbose=1; % give feedback
 estimoptions.CalibParamsNames={'R'};
 
 if altPeriodJ==1
     EstimParamNames={'beta','rho','h','kappa','rhoJ'}; % include rhoJ in the parameters to estimate
 end
 
-%% I ran it and got estimates along the lines of beta=0.966, rho=0, and h negative.
+%% When using small nSigmas get negative h, so I rule this out
 % Constrain h>=0 
-estimoptions.constrainpositive={'h'};
+estimoptions.constrainpositive={'h'}; % 
 
 %% Need the Variance-Covariance matrix of the moment conditions
 % GP2002 say they set weights as diagonal matrix, with elements being inverse of the variance of the data moments (given the actual numbers, these are presumably for log(C))
@@ -452,12 +465,13 @@ CovarMatrixDataMoments(logical(eye(size(CovarMatrixDataMoments))))=diag(Weightin
 %% Done, setting up. 
 ParametrizeParamsFn=[]; % not something we use
 
+save ./SavedOutput/GP2002setup.mat
+
 %% First, the robust estimation
 % Robust: use the identity matrix as weighting matrix
 
 RobustWeightingMatrix=eye(size(CovarMatrixDataMoments));
 
-estimoptions.verbose=1; % give feedback
 [EstimParams_robust, EstimParamsConfInts_robust, estsummary_robust]=EstimateLifeCycleModel_MethodOfMoments(EstimParamNames,TargetMoments, RobustWeightingMatrix,CovarMatrixDataMoments, n_d,n_a,n_z,N_j,d_grid, a_grid, z_grid_J, pi_z_J, ReturnFn, Params, DiscountFactorParamNames, jequaloneDist,AgeWeightParamNames, ParametrizeParamsFn, FnsToEvaluate, estimoptions, vfoptions,simoptions);
 % EstimParams is the estimated parameter values
 % estsummary is a structure containing various info on how the estimation
@@ -465,9 +479,10 @@ estimoptions.verbose=1; % give feedback
 
 save ./SavedOutput/GP2002estimation_robust.mat EstimParams_robust EstimParamsConfInts_robust Params estsummary_robust estimoptions
 
-save ./SavedOutput/GP2002_1.mat
-
-% estimoptions.skipestimation=1
+% % Put the robust estimates into Params, so I can use them as an initial guess for the efficient estimates (should substantially reduce the runtime)
+% for cc=1:length(EstimParamNames)
+%     Params.(EstimParamNames{cc})=EstimParams_robust.(EstimParamNames{cc});
+% end
 
 %% Second, the efficient estimation
 % Efficient: use the inverse of the variance-covariance matrix of the moment conditions as the weighting matrix
@@ -480,7 +495,6 @@ save ./SavedOutput/GP2002_1.mat
 
 EfficientWeightingMatrix=CovarMatrixDataMoments^(-1);
 
-estimoptions.verbose=1; % give feedback
 [EstimParams_eff, EstimParamsConfInts_eff, estsummary_eff]=EstimateLifeCycleModel_MethodOfMoments(EstimParamNames,TargetMoments, EfficientWeightingMatrix,CovarMatrixDataMoments, n_d,n_a,n_z,N_j,d_grid, a_grid, z_grid_J, pi_z_J, ReturnFn, Params, DiscountFactorParamNames, jequaloneDist,AgeWeightParamNames, ParametrizeParamsFn, FnsToEvaluate, estimoptions, vfoptions,simoptions);
 % EstimParams is the estimated parameter values
 % estsummary is a structure containing various info on how the estimation
@@ -488,8 +502,9 @@ estimoptions.verbose=1; % give feedback
 
 save ./SavedOutput/GP2002estimation_eff.mat EstimParams_eff EstimParamsConfInts_eff Params estsummary_eff estimoptions
 
-save ./SavedOutput/GP2002_2.mat
 
+%% Save progress
+save ./SavedOutput/GP2002_1.mat
 
 
 %% Do I get the same estimates:
@@ -512,8 +527,6 @@ save ./SavedOutput/GP2002_2.mat
 % with the value of the objective function under their parameter estimates.
 
 
-
-
 %% Plot some outputs
 for cc=1:length(EstimParamNames)
     Params.(EstimParamNames{cc})=EstimParams_robust.(EstimParamNames{cc});
@@ -522,40 +535,35 @@ simoptions.whichstats=ones(1,7);
 [V,Policy]=ValueFnIter_Case1_FHorz(n_d,n_a,n_z,N_j,d_grid,a_grid,z_grid_J,pi_z_J,ReturnFn,Params,DiscountFactorParamNames,[],vfoptions);
 StationaryDist=StationaryDist_FHorz_Case1(jequaloneDist,AgeWeightParamNames,Policy,n_d,n_a,n_z,N_j,pi_z_J,Params,simoptions);
 
-% FnsToEvaluate2.Income=@(aprime,a,z,e) z*e;
-% FnsToEvaluate2.Consumption=@(aprime,a,z,e,R) R*a+z*e-aprime;
-% FnsToEvaluate2.z=@(aprime,a,z,e) z;
-% FnsToEvaluate2.e=@(aprime,a,z,e) e;
-% FnsToEvaluate2.a=@(aprime,a,z,e) a;
+AgeConditionalStats_robust=LifeCycleProfiles_FHorz_Case1(StationaryDist,Policy,FnsToEvaluate2,Params,[],n_d,n_a,n_z,N_j,d_grid,a_grid,z_grid_J,simoptions);
 
-AgeConditionalStats=LifeCycleProfiles_FHorz_Case1(StationaryDist,Policy,FnsToEvaluate2,Params,[],n_d,n_a,n_z,N_j,d_grid,a_grid,z_grid_J,simoptions);
-
-figure(11);
-plot(Params.age,AgeConditionalStats.Income.Mean)
-hold on
-plot(Params.age,AgeConditionalStats.Consumption.Mean)
-hold off
-title('Model life-cycle profiles')
-legend('Income','Consumption')
+if showFigures==1
+    figure(11);
+    plot(Params.age,AgeConditionalStats.Income.Mean)
+    hold on
+    plot(Params.age,AgeConditionalStats_robust.Consumption.Mean)
+    hold off
+    title('Model life-cycle profiles')
+    legend('Income','Consumption')
 
 
-figure(12)
-subplot(3,1,1); plot(Params.age,AgeConditionalStats.a.Mean)
-title('Assets (a)')
-subplot(3,1,2); plot(Params.age,AgeConditionalStats.z.Mean)
-title('Permanent shock (z)')
-subplot(3,1,3); plot(Params.age,AgeConditionalStats.e.Mean)
-title('Transitory shock (e)')
+    figure(12)
+    subplot(3,1,1); plot(Params.age,AgeConditionalStats_robust.a.Mean)
+    title('Assets (a)')
+    subplot(3,1,2); plot(Params.age,AgeConditionalStats_robust.z.Mean)
+    title('Permanent shock (z)')
+    subplot(3,1,3); plot(Params.age,AgeConditionalStats_robust.e.Mean)
+    title('Transitory shock (e)')
 
 
-figure(13)
-subplot(2,1,1); plot(26:1:65,avgincome,Params.age,AgeConditionalStats.Income.Mean)
-title('Income')
-legend('Data','Model')
-subplot(2,1,2); plot(26:1:65,smoothavgconsumption,Params.age,AgeConditionalStats.Consumption.Mean,26:1:65,fittedavgconsumption_AGS2017)
-title('Consumption')
-legend('Data','Model','AGS2017')
-
+    figure(13)
+    subplot(2,1,1); plot(26:1:65,avgincome,Params.age,AgeConditionalStats_robust.Income.Mean)
+    title('Income')
+    legend('Data','Model')
+    subplot(2,1,2); plot(26:1:65,smoothavgconsumption,Params.age,AgeConditionalStats_robust.Consumption.Mean,26:1:65,fittedavgconsumption_AGS2017)
+    title('Consumption')
+    legend('Data','Model','AGS2017')
+end
 
 % As a check on the graph, calculate the GMM objective function both for our estimate and AGS2017 estimate
 Mdiff_mine=(log(smoothavgconsumption)-log(AgeConditionalStats.Consumption.Mean))';
@@ -570,40 +578,40 @@ GMMobj_AGS=Mdiff_AGS'*EfficientWeightingMatrix*Mdiff_AGS;
 % alternative parametrization makes it impossible to achieve an objective
 % function value as low as theirs.
 
-save ./SavedOutput/GP2002_3.mat
-
 
 %% Check asset grid (make sure people are not trying to leave the top end)
-Sdist=squeeze(sum(sum(StationaryDist,3),2));
-Sdist=cumsum(Sdist,1);
-Sdist=Sdist./Sdist(end,:); % normalize to 1 conditional on age
-figure(14)
-plot(Sdist(:,1))
-hold on
-plot(Sdist(:,10))
-plot(Sdist(:,20))
-plot(Sdist(:,30))
-plot(Sdist(:,40))
-hold off
-legend('period 1','10','20','30','40')
-title('CDF of households over assets')
-% Seems fine, no-one runs into the top of the grid
+if showFigures==1
+    Sdist=squeeze(sum(sum(StationaryDist,3),2));
+    Sdist=cumsum(Sdist,1);
+    Sdist=Sdist./Sdist(end,:); % normalize to 1 conditional on age
+    figure(14)
+    plot(Sdist(:,1))
+    hold on
+    plot(Sdist(:,10))
+    plot(Sdist(:,20))
+    plot(Sdist(:,30))
+    plot(Sdist(:,40))
+    hold off
+    legend('period 1','10','20','30','40')
+    title('CDF of households over assets')
+    % Seems fine, no-one runs into the top of the grid
 
-% Take a look at dist over z shocks too (just to see)
-Sdistz=squeeze(sum(sum(StationaryDist,3),1));
-Sdistz=cumsum(Sdistz,1);
-Sdistz=Sdistz./Sdistz(end,:); % normalize to 1 conditional on age
-figure(15)
-plot(Sdistz(:,1))
-hold on
-plot(Sdistz(:,10))
-plot(Sdistz(:,20))
-plot(Sdistz(:,30))
-plot(Sdistz(:,40))
-hold off
-legend('period 1','10','20','30','40')
-title('CDF of households over z (unit-root shocks)')
-
+    % Take a look at dist over z shocks too (just to see)
+    Sdistz=squeeze(sum(sum(StationaryDist,3),1));
+    Sdistz=cumsum(Sdistz,1);
+    Sdistz=Sdistz./Sdistz(end,:); % normalize to 1 conditional on age
+    figure(15)
+    plot(Sdistz(:,1))
+    hold on
+    plot(Sdistz(:,10))
+    plot(Sdistz(:,20))
+    plot(Sdistz(:,30))
+    plot(Sdistz(:,40))
+    hold off
+    legend('period 1','10','20','30','40')
+    title('CDF of households over z (unit-root shocks)')
+    % Looks fine
+end
 
 %% Runtime Comparisons
 % needed for paper
@@ -657,127 +665,6 @@ if doRuntimes==1
 
 end % doRuntimes
 
-% %% Can we tell in advance which are likely to be best moments to target?
-% % Calculate all the derivatives of moments with respect to parameters
-% % Want to think about Gourinchas & Parker (2002) vs Cagetti (2003)
-% % Both essentially estimate model of Carroll (1997)
-% % GP2002 targets age-conditional mean of consumption
-% % C2003 targets age-conditional median of wealth
-% % Use calibrated parameters of Carroll (1997) 
-% 
-% if doMomentDerivs==1
-%     % load ./SavedOutput/GP2002_1.mat
-% 
-%     FnsToEvaluate3.Consumption=@(aprime,a,z,e,R) R*a+z*e-aprime;
-%     FnsToEvaluate3.Wealth=@(aprime,a,z,e) a;
-% 
-% 
-%     Params.beta=1/(1+0.04);
-%     Params.rho=2;
-%     % Carroll (1997) doesn't need/use a parametrization of V_{T+1}, so I will just use our estimated one.
-%     Params.h=EstimParams_eff.h;
-%     Params.kappa=EstimParams_eff.kappa;
-% 
-%     % Compute the derivatives of model moments with respect to parameters to be estimated.
-%     [MomentDerivatives, SortedMomentDerivatives, momentderivsummary]=EstimateLifeCycleModel_MomentDerivatives(EstimParamNames, n_d,n_a,n_z,N_j,d_grid, a_grid, z_grid_J, pi_z_J, ReturnFn, Params, DiscountFactorParamNames, jequaloneDist,AgeWeightParamNames, ParametrizeParamsFn, FnsToEvaluate3, estimoptions, vfoptions,simoptions);
-% 
-% 
-%     % How does beta matter?
-%     % Look at the derivatives w.r.t. beta for age-conditional mean of consumption
-%     MomentDerivatives.wrt_beta.AgeConditionalStats.Consumption.Mean
-%     % Look at the derivatives w.r.t. beta for age-conditional median of wealth
-%     MomentDerivatives.wrt_beta.AgeConditionalStats.Wealth.Median
-%     MomentDerivatives.wrt_beta.AgeConditionalStats.Wealth.Mean
-% 
-%     % How does rho matter?
-%     % Look at the derivatives w.r.t. beta for age-conditional mean of consumption
-%     MomentDerivatives.wrt_rho.AgeConditionalStats.Consumption.Mean
-%     % Look at the derivatives w.r.t. beta for age-conditional median of wealth
-%     MomentDerivatives.wrt_rho.AgeConditionalStats.Wealth.Median
-%     MomentDerivatives.wrt_rho.AgeConditionalStats.Wealth.Mean
-% 
-%     save ./SavedOutput/MomentDerivatives.mat MomentDerivatives Params momentderivsummary
-% 
-%     % What about std deviations of the empirical moments?
-%     % GP2002 get consumption data using 40,000 households, but across all the age it is nearer 1000 per age.
-%     % GP2002, pg 48: "from a sample of roughly 40,000 households from the Consumer Expenditure Survey (CEX) from 1980 to 1993"
-%     % C2003, apparently just 20 to 100 observations per age
-%     % C2003 gets wealth data from Survey of Consumer Finances (SCF), has
-%     % roughly 3275 individual households worth of data (top pg 343)
-%     % I have the variance of the empirical moments for GP2002 (see near top of code, they were used for the weighting matrix)
-%     % C2003 does not appear to report hem (and don't think codes are available, I have not tried emailing Marco Cagetti to ask if he still has them)
-% 
-% 
-%     % Note: C2003 does simulations with 10,000 individuals (C2003, pg 352: "the
-%     % life cycle profiles are simulated for 10,000 households while each age
-%     % group contains from 20 to 100 observations, so the ratio of observations
-%     % to simulated points is extremely low")
-%     % Note: C2003, pg 352 "The variance of the estimator due to the simulation
-%     % is not considered", not sure what he means by this? Guessing he just
-%     % omits the (1+1/s) term from the covar matrix of the parameter estimates?
-% 
-%     % GP2002 parameter estimates:
-%     % beta    0.9598 (0.0101)
-%     % rho     0.5140 (0.1690)
-%     % gamma0  0.0015 (5.68x10^(-6))
-%     % gamma1  0.0710 (0.0613)
-%     %
-%     % C2003 parameter estimates:
-%     % beta
-% 
-% 
-% 
-% 
-%     %% Double-check the way I use finite-difference to compute derivatives
-%     for cc=1:length(EstimParamNames)
-%         Params.(EstimParamNames{cc})=EstimParams_robust.(EstimParamNames{cc});
-%     end
-%     diffParamName={'h'}
-%     epsilon=(10^4)*sqrt(2.2)*10^(-8);
-%     disp('baseline')
-%     [V,Policy]=ValueFnIter_Case1_FHorz(n_d,n_a,n_z,N_j,d_grid,a_grid,z_grid_J,pi_z_J,ReturnFn,Params,DiscountFactorParamNames,[],vfoptions);
-%     StationaryDist=StationaryDist_FHorz_Case1(jequaloneDist,AgeWeightParamNames,Policy,n_d,n_a,n_z,N_j,pi_z_J,Params,simoptions);
-%     AgeConditionalStats1=LifeCycleProfiles_FHorz_Case1(StationaryDist,Policy,FnsToEvaluate2,Params,[],n_d,n_a,n_z,N_j,d_grid,a_grid,z_grid_J,simoptions);
-%     disp('upwind')
-%     Params.(diffParamName{1})=EstimParams_robust.(diffParamName{1})*(1+epsilon);
-%     [V,Policy]=ValueFnIter_Case1_FHorz(n_d,n_a,n_z,N_j,d_grid,a_grid,z_grid_J,pi_z_J,ReturnFn,Params,DiscountFactorParamNames,[],vfoptions);
-%     StationaryDist=StationaryDist_FHorz_Case1(jequaloneDist,AgeWeightParamNames,Policy,n_d,n_a,n_z,N_j,pi_z_J,Params,simoptions);
-%     AgeConditionalStats1up=LifeCycleProfiles_FHorz_Case1(StationaryDist,Policy,FnsToEvaluate2,Params,[],n_d,n_a,n_z,N_j,d_grid,a_grid,z_grid_J,simoptions);
-%     disp('downwind')
-%     Params.(diffParamName{1})=EstimParams_robust.(diffParamName{1})*(1-epsilon);
-%     [V,Policy]=ValueFnIter_Case1_FHorz(n_d,n_a,n_z,N_j,d_grid,a_grid,z_grid_J,pi_z_J,ReturnFn,Params,DiscountFactorParamNames,[],vfoptions);
-%     StationaryDist=StationaryDist_FHorz_Case1(jequaloneDist,AgeWeightParamNames,Policy,n_d,n_a,n_z,N_j,pi_z_J,Params,simoptions);
-%     AgeConditionalStats1down=LifeCycleProfiles_FHorz_Case1(StationaryDist,Policy,FnsToEvaluate2,Params,[],n_d,n_a,n_z,N_j,d_grid,a_grid,z_grid_J,simoptions);
-% 
-%     difflogCup=log(AgeConditionalStats1up.Consumption.Mean)-log(AgeConditionalStats1.Consumption.Mean);
-%     difflogCdown=log(AgeConditionalStats1.Consumption.Mean)-log(AgeConditionalStats1down.Consumption.Mean);
-%     difflogCcenter=log(AgeConditionalStats1up.Consumption.Mean)-log(AgeConditionalStats1down.Consumption.Mean);
-% 
-%     diffCup=AgeConditionalStats1up.Consumption.Mean-AgeConditionalStats1.Consumption.Mean;
-%     diffCdown=AgeConditionalStats1.Consumption.Mean-AgeConditionalStats1down.Consumption.Mean;
-%     diffCcenter=AgeConditionalStats1up.Consumption.Mean-AgeConditionalStats1down.Consumption.Mean;
-% 
-%     dlnCdbeta_up=difflogCup./(epsilon*EstimParams_robust.(diffParamName{1}));
-%     dlnCdbeta_down=difflogCdown./(epsilon*EstimParams_robust.(diffParamName{1}));
-%     dlnCdbeta_center=difflogCcenter./(2*epsilon*EstimParams_robust.(diffParamName{1}));
-% 
-%     dCdbeta_up=diffCup./(epsilon*EstimParams_robust.(diffParamName{1}));
-%     dCdbeta_down=diffCdown./(epsilon*EstimParams_robust.(diffParamName{1}));
-%     dCdbeta_center=diffCcenter./(2*epsilon*EstimParams_robust.(diffParamName{1}));
-% 
-% 
-%     disp('Finite difference gives derivatives as \n')
-%     [dlnCdbeta_up; dlnCdbeta_down; dlnCdbeta_center]
-% 
-% 
-%     % estsummary_robust.doublechecks.epsilon1000000.J
-% 
-%     % estsummary_robust.doublechecks.epsilon10000.J
-% 
-%     % estsummary_robust.doublechecks.epsilon100.J
-% end
-
-
 
 %% Check the standard errors, using much larger grids
 n_a=2501;
@@ -788,7 +675,7 @@ jequaloneDistassets=MVNormal_ProbabilitiesOnGrid(log(a_grid/1000+[10^(-9);zeros(
 jequaloneDist=jequaloneDistassets.*jequaloneDistz'.*shiftdim(pi_e,-2);
 
 estimoptions.skipestimation=1
-vfoptions.level1n=15;
+vfoptions.level1n=floor(n_a/100);
 
 for cc=1:length(EstimParamNames)
     Params.(EstimParamNames{cc})=EstimParams_robust.(EstimParamNames{cc});
@@ -798,11 +685,79 @@ end
 for cc=1:length(EstimParamNames)
     Params.(EstimParamNames{cc})=EstimParams_eff.(EstimParamNames{cc});
 end
-estimoptions.efficientW=1; % Not really needed as in principle the formulas are the same anyway
+% estimoptions.efficientW=1; % Not really needed as in principle the formulas evaulate to the the same anyway
 [EstimParams_eff2, EstimParamsConfInts_eff2, estsummary_eff2]=EstimateLifeCycleModel_MethodOfMoments(EstimParamNames,TargetMoments, EfficientWeightingMatrix,CovarMatrixDataMoments, n_d,n_a,n_z,N_j,d_grid, a_grid, z_grid_J, pi_z_J, ReturnFn, Params, DiscountFactorParamNames, jequaloneDist,AgeWeightParamNames, ParametrizeParamsFn, FnsToEvaluate, estimoptions, vfoptions,simoptions);
 
 
-save ./GP2002bigsave.mat
+% Use the robust point estimates, and then compute the efficient standard
+% deviations (to back up my claim that the larger std dev of efficient
+% estimate is because of the different point estimate)
+for cc=1:length(EstimParamNames)
+    Params.(EstimParamNames{cc})=EstimParams_robust.(EstimParamNames{cc});
+end
+[EstimParams_effcheck, EstimParamsConfInts_effcheck, estsummary_effcheck]=EstimateLifeCycleModel_MethodOfMoments(EstimParamNames,TargetMoments, EfficientWeightingMatrix,CovarMatrixDataMoments, n_d,n_a,n_z,N_j,d_grid, a_grid, z_grid_J, pi_z_J, ReturnFn, Params, DiscountFactorParamNames, jequaloneDist,AgeWeightParamNames, ParametrizeParamsFn, FnsToEvaluate, estimoptions, vfoptions,simoptions);
 
 
+save ./SavedOutput/GP2002_2.mat
+
+
+%% Table for my paper
+FID = fopen('./SavedOutput/GP2002estimates.tex', 'w');
+fprintf(FID, '\\begin{tabular}{|l|c|c|l|} \\hline \\hline \n');
+fprintf(FID, '\\multicolumn{4}{|c|}{\\textbf{Estimated Parameters}} \\\\ \\hline \n');
+fprintf(FID, '\\multicolumn{4}{|c|}{\\textbf{Robust estimates ($W=\\mathbb{I}$)}} \\\\ \n');
+fprintf(FID, '\\multicolumn{1}{|c}{} & \\multicolumn{1}{c}{\\textit{Point Estimate}} & \\multicolumn{1}{c}{\\textit{90\\%% Conf. Int}} & \\multicolumn{1}{c|}{\\textit{Description}}  \\\\ \n');
+fprintf(FID, '\\hline \n');
+fprintf(FID, '$\\beta$ & %1.3f & [%1.3f, %1.3f] & discount factor \\\\ \n', EstimParams_robust.beta, EstimParamsConfInts_robust2.beta(1), EstimParamsConfInts_robust2.beta(2));
+fprintf(FID, '$\\rho$ & %1.3f & [%1.3f, %1.3f] & curvature of utility fn \\\\ \n', EstimParams_robust.rho, EstimParamsConfInts_robust2.rho(1), EstimParamsConfInts_robust2.rho(2));
+fprintf(FID, '$h$ & %1.3f & [%1.3f, %1.3f] & role of permanent income in warm-glow \\\\ \n', EstimParams_robust.h, EstimParamsConfInts_robust2.h(1), EstimParamsConfInts_robust2.h(2));
+fprintf(FID, '$\\kappa$ & %1.3f & [%1.3f, %1.3f] & relative importance of warm-glow \\\\ \n', EstimParams_robust.kappa, EstimParamsConfInts_robust2.kappa(1), EstimParamsConfInts_robust2.kappa(2));
+if altPeriodJ==1
+    fprintf(FID, '$\\rho_J$ & %1.3f & [%1.3f, %1.3f] & curvature of warm-glow utility fn \\\\ \n', EstimParams_robust.rhoJ, EstimParamsConfInts_robust2.rhoJ(1), EstimParamsConfInts_robust2.rhoJ(2));
+end
+fprintf(FID, '\\hline \n');
+fprintf(FID, '\\multicolumn{4}{|c|}{\\textbf{Efficient estimates ($W=\\Omega^{-1}$)}} \\\\ \n');
+fprintf(FID, '\\multicolumn{1}{|c}{} & \\multicolumn{1}{c}{\\textit{Point Estimate}} & \\multicolumn{1}{c}{\\textit{90\\%% Conf. Int}} & \\multicolumn{1}{c|}{\\textit{Description}}  \\\\ \n');
+fprintf(FID, '\\hline \n');
+fprintf(FID, '$\\beta$ & %1.3f & [%1.3f, %1.3f] & discount factor \\\\ \n', EstimParams_eff.beta, EstimParamsConfInts_eff2.beta(1), EstimParamsConfInts_eff2.beta(2));
+fprintf(FID, '$\\rho$ & %1.3f & [%1.3f, %1.3f] & curvature of utility fn \\\\ \n', EstimParams_eff.rho, EstimParamsConfInts_eff2.rho(1), EstimParamsConfInts_eff2.rho(2));
+fprintf(FID, '$h$ & %1.3f & [%1.3f, %1.3f] & role of permanent income in warm-glow \\\\ \n', EstimParams_eff.h, EstimParamsConfInts_eff2.h(1), EstimParamsConfInts_eff2.h(2));
+fprintf(FID, '$\\kappa$ & %1.3f & [%1.3f, %1.3f] & relative importance of warm-glow \\\\ \n', EstimParams_eff.kappa, EstimParamsConfInts_eff2.kappa(1), EstimParamsConfInts_eff2.kappa(2));
+if altPeriodJ==1
+    fprintf(FID, '$\\rho_J$ & %1.3f & [%1.3f, %1.3f] & curvature of warm-glow utility fn \\\\ \n', EstimParams_eff.rhoJ, EstimParamsConfInts_eff2.rhoJ(1), EstimParamsConfInts_eff2.rhoJ(2));
+end
+fprintf(FID, '\\hline \\hline \n \\end{tabular} \n');
+fprintf(FID, '\\begin{minipage}[t]{0.90\\textwidth}{\\baselineskip=.5\\baselineskip \\vspace{.3cm} \\textit{\\footnotesize{Notes: (i) The parameter $h$ was constrained to be positive.}}} \\end{minipage}');
+fclose(FID);
+
+
+%% Graph for appendix in my paper
+simoptions.whichstats=ones(1,7);
+% Consumption moments for robust estimates
+for cc=1:length(EstimParamNames)
+    Params.(EstimParamNames{cc})=EstimParams_robust.(EstimParamNames{cc});
+end
+[V,Policy]=ValueFnIter_Case1_FHorz(n_d,n_a,n_z,N_j,d_grid,a_grid,z_grid_J,pi_z_J,ReturnFn,Params,DiscountFactorParamNames,[],vfoptions);
+StationaryDist=StationaryDist_FHorz_Case1(jequaloneDist,AgeWeightParamNames,Policy,n_d,n_a,n_z,N_j,pi_z_J,Params,simoptions);
+AgeConditionalStats_robust=LifeCycleProfiles_FHorz_Case1(StationaryDist,Policy,FnsToEvaluate2,Params,[],n_d,n_a,n_z,N_j,d_grid,a_grid,z_grid_J,simoptions);
+% Consumption moments for efficient estimates
+for cc=1:length(EstimParamNames)
+    Params.(EstimParamNames{cc})=EstimParams_eff.(EstimParamNames{cc});
+end
+[V,Policy]=ValueFnIter_Case1_FHorz(n_d,n_a,n_z,N_j,d_grid,a_grid,z_grid_J,pi_z_J,ReturnFn,Params,DiscountFactorParamNames,[],vfoptions);
+StationaryDist=StationaryDist_FHorz_Case1(jequaloneDist,AgeWeightParamNames,Policy,n_d,n_a,n_z,N_j,pi_z_J,Params,simoptions);
+AgeConditionalStats_eff=LifeCycleProfiles_FHorz_Case1(StationaryDist,Policy,FnsToEvaluate2,Params,[],n_d,n_a,n_z,N_j,d_grid,a_grid,z_grid_J,simoptions);
+
+if showFigures==1
+    fig16=figure(16);
+    subplot(2,1,1); plot(26:1:65,avgincome,Params.age,AgeConditionalStats_robust.Income.Mean)
+    title('Income')
+    legend('Data','Model')
+    subplot(2,1,2); plot(26:1:65,smoothavgconsumption,Params.age,AgeConditionalStats_robust.Consumption.Mean,Params.age,AgeConditionalStats_eff.Consumption.Mean,26:1:65,fittedavgconsumption_AGS2017)
+    title('Consumption')
+    legend('Data','Robust','Efficient','AGS2017')
+    saveas(fig16,'./SavedOutput/FigureConsumptionIncomeFit.pdf','pdf')
+end
+% And double-check (as not in figure)
+max(abs(AgeConditionalStats_robust.Income.Mean-AgeConditionalStats_eff.Income.Mean)) % should be zero
 
