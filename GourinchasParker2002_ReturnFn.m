@@ -45,10 +45,11 @@ if agej==J
     % (GP2002 don't need this because they use FOCs so ignore the bequests, but they make same zprime=z assumption for H_{J+1} near top of pg 54)
     % Note that E[eprime]=1, so I just put in this certainty equivalent.
 
+    Fret=-Inf; % this should be overwritten in a moment, hopefully user notices if not :)
     if altPeriodJ==0 % Do final period following GP2002 paper
         Fret=beta*kappa*upsilon*(XplusH^(1-rho))/(1-rho); % Add retirement utility to this period utility
         % Note: implicitly assume upsilon is constant from period J to J+1 (is anyway hardly changing in last few periods)
-    else % altPeriodJ==1
+    elseif altPeriodJ==1
         % Use different rho for the final period
         Fret=beta*kappa*upsilon*(XplusH^(1-rhoJ))/(1-rhoJ); % Add retirement utility to this period utility
         % Note: still uses rho in upsilon.
