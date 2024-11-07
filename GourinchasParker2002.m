@@ -62,6 +62,7 @@ Params.nSigmas=2; % for both permanent and transitory shocks
 % Set small nSigmas, used for both, to be more in line with what a 5 point Gauss-Hermite is likely to produce in terms of amount of income risk
 
 estimoptions.fminalgo=8; % lsqnonlin()
+estimoptions.eedefault=2; % determines size of 'epsilon' used for finite-difference to compute J
 
 %% Empirical data
 % From: https://github.com/ThomasHJorgensen/Sensitivity/tree/master/GP2002
